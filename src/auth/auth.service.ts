@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import * as bcrypt from 'bcrypt';
 import { User } from '../users/entities/user.entity';
 
 interface GoogleProfile {
@@ -9,11 +12,18 @@ interface GoogleProfile {
   displayName: string;
 }
 
+export interface AuthTokens {
+  accessToken: string;
+  refreshToken: string;
+}
+
 @Injectable()
 export class AuthService {
   constructor(
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
+    private readonly jwtService: JwtService,
+    private readonly config: ConfigService,
   ) {}
 
   async upsertGoogleUser(profile: GoogleProfile): Promise<User> {
@@ -33,5 +43,29 @@ export class AuthService {
     }
 
     return this.usersRepository.save(user);
+  }
+
+  async issueTokens(user: User): Promise<AuthTokens> {
+    const payload = { sub: user.id, email: user.email };
+
+    const accessToken = this.jwtService.sign(payload);
+
+    const refreshToken = this.jwtService.sign(payload, {
+      secret: this.config.getOrThrow<string>('JWT_REFRESH_SECRET'),
+      expiresIn: '30d',
+    });
+
+    const hashed = await bcrypt.hash(refreshToken, 10);
+    await this.usersRepository.update(user.id, { refreshToken: hashed });
+
+    return { accessToken, refreshToken };
+  }
+
+  async refreshTokens(user: User): Promise<AuthTokens> {
+    return this.issueTokens(user);
+  }
+
+  async logout(userId: string): Promise<void> {
+    await this.usersRepository.update(userId, { refreshToken: null });
   }
 }
