@@ -1,26 +1,23 @@
-import { Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { Request } from 'express';
+import type { Request } from 'express';
 import { Public } from './decorators/public.decorator';
 import { AuthService, AuthTokens } from './auth.service';
 import { User } from '../users/entities/user.entity';
+import { FirebaseLoginDto } from './dto/firebase-login.dto';
 
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  /**
+   * Android sends a Firebase ID token obtained after Google Sign-In.
+   * NestJS verifies it via firebase-admin, upserts the user, and issues its own JWTs.
+   */
   @Public()
-  @Get('google')
-  @UseGuards(AuthGuard('google'))
-  googleLogin(): void {
-    // Passport redirects to Google — no body needed
-  }
-
-  @Public()
-  @Get('google/callback')
-  @UseGuards(AuthGuard('google'))
-  async googleCallback(@Req() req: Request): Promise<AuthTokens> {
-    return this.authService.issueTokens(req.user as User);
+  @Post('firebase')
+  async firebaseLogin(@Body() body: FirebaseLoginDto): Promise<AuthTokens> {
+    return this.authService.verifyFirebaseAndLogin(body.idToken);
   }
 
   @Public()

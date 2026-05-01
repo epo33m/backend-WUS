@@ -11,6 +11,8 @@ import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RealtimeModule } from './realtime/realtime.module';
+import { FirebaseAdminModule } from './firebase/firebase.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -36,6 +38,8 @@ import { RealtimeModule } from './realtime/realtime.module';
     UsersModule,
     AuthModule,
     RealtimeModule,
+    FirebaseAdminModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [
