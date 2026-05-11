@@ -13,7 +13,7 @@ import { Session } from './sessions/entities/session.entity';
 import { Order } from './orders/entities/order.entity';
 import { OrderItem } from './orders/entities/order-item.entity';
 import { UsersModule } from './users/users.module';
-<<<<<<< HEAD
+
 import { AuthModule } from './auth/auth.module';
 import { MenuModule } from './menu/menu.module';
 import { SessionsModule } from './sessions/sessions.module';
@@ -22,14 +22,14 @@ import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RealtimeModule } from './realtime/realtime.module';
 import { FirebaseAdminModule } from './firebase/firebase.module';
 import { NotificationsModule } from './notifications/notifications.module';
-=======
+
 import { LoyaltyModule } from './loyalty/loyalty.module';
 // import { AuthModule } from './auth/auth.module';
 // import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 // import { RealtimeModule } from './realtime/realtime.module';
 // import { FirebaseAdminModule } from './firebase/firebase.module';
 // import { NotificationsModule } from './notifications/notifications.module';
->>>>>>> 88a48f2 (feat: complete issue #1 coupon entity)
+
 
 @Module({
   imports: [
@@ -44,11 +44,11 @@ import { LoyaltyModule } from './loyalty/loyalty.module';
       useFactory: (config: ConfigService) => ({
         type: 'postgres',
         url: config.get<string>('DATABASE_URL'),
-<<<<<<< HEAD
+
         entities: [User, Table, MenuItem, Session, Order, OrderItem],
-=======
+
         autoLoadEntities: true,
->>>>>>> 88a48f2 (feat: complete issue #1 coupon entity)
+
         synchronize: config.get<string>('NODE_ENV') !== 'production',
         ssl:
           config.get<string>('NODE_ENV') === 'production'
@@ -57,21 +57,11 @@ import { LoyaltyModule } from './loyalty/loyalty.module';
       }),
     }),
     UsersModule,
-<<<<<<< HEAD
-    AuthModule,
-    MenuModule,
-    SessionsModule,
-    OrdersModule,
-    RealtimeModule,
-    FirebaseAdminModule,
-    NotificationsModule,
-=======
     // AuthModule,
     // RealtimeModule,
     // FirebaseAdminModule,
     // NotificationsModule,
     LoyaltyModule,
->>>>>>> 88a48f2 (feat: complete issue #1 coupon entity)
   ],
   controllers: [AppController],
   providers: [
