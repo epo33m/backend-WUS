@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
 import { Session } from '../../sessions/entities/session.entity';
 
 export enum OrderStatus {
@@ -8,6 +8,8 @@ export enum OrderStatus {
 }
 
 @Entity('orders')
+@Index('idx_orders_status_updated', ['status', 'updatedAt'])
+@Index('idx_orders_user_status', ['sessionId', 'status'])
 export class Order {
   @PrimaryGeneratedColumn('uuid')
   id: string;

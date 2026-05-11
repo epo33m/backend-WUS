@@ -1,6 +1,7 @@
 import { Entity, PrimaryGeneratedColumn, Column, Index, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 
 @Entity('menu_items')
+@Index('idx_menu_available', ['isAvailable'])
 export class MenuItem {
   @PrimaryGeneratedColumn('uuid')
   id: string;

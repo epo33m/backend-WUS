@@ -18,7 +18,7 @@ export class LoyaltyTransaction {
     @PrimaryGeneratedColumn()
     id: number;
 
-    @Index()
+    @Index('idx_loyalty_tx_user')
     @Column()
     userId: number;
 
