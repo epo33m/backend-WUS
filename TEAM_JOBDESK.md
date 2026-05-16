@@ -76,7 +76,6 @@
 - Store user data on first Google login (upsert by `googleId`): name, email, profile picture (`displayName`), points balance
 - SSE service (`sse/sse.service.ts`): per-order `Subject`, push full state snapshots to customer
 - `CashierGateway` (`gateways/cashier.gateway.ts`): WebSocket namespace `/cashier`, JWT guard on `handleConnection`, cashier joins `cashier-room` on connect, emits `new_order` / `order_updated` / `order_cancelled`
-- FCM service (`notifications/fcm.service.ts`): data-only payloads with `android.priority: high` — never notification payload
 - Wire all `EventEmitter` events post-commit only: `order.submitted`, `order.confirmed`, `order.ready`, `reward.issued`, `user.tier_upgraded`
 
 **Files owned:**
@@ -86,7 +85,6 @@ src/auth/
 src/users/
 src/sse/sse.service.ts
 src/gateways/cashier.gateway.ts
-src/notifications/fcm.service.ts
 ```
 
 ---
