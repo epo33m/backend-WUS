@@ -14,6 +14,9 @@ export class Table {
   @Column({ unique: true })
   tableNumber: number;
 
+  @Column({ unique: true, type: 'varchar' })
+  qrCode: string;
+
   @Column({ type: 'int', default: 4 })
   capacity: number;
 

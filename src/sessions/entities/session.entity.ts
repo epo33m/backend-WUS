@@ -1,19 +1,23 @@
 import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 import { Table } from '../../users/entities/table.entity';
+import { User } from '../../users/entities/user.entity';
+
+export enum SessionStatus {
+  ACTIVE = 'ACTIVE',
+  CLOSED = 'CLOSED',
+}
 
 @Entity('sessions')
 export class Session {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ type: 'timestamp' })
-  startTime: Date;
+  @ManyToOne(() => User, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'userId' })
+  user: User;
 
-  @Column({ type: 'timestamp', nullable: true })
-  endTime: Date | null;
-
-  @Column({ type: 'boolean', default: true })
-  isActive: boolean;
+  @Column({ type: 'uuid' })
+  userId: string;
 
   @ManyToOne(() => Table, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'tableId' })
@@ -21,6 +25,9 @@ export class Session {
 
   @Column({ type: 'uuid' })
   tableId: string;
+
+  @Column({ type: 'enum', enum: SessionStatus, default: SessionStatus.ACTIVE })
+  status: SessionStatus;
 
   @CreateDateColumn()
   createdAt: Date;

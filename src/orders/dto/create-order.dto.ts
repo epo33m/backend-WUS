@@ -1,15 +1,13 @@
-import { IsUUID, IsArray, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { IsUUID, IsArray, IsOptional, IsString, IsInt, IsPositive, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
 class OrderItemDto {
   @IsUUID()
   menuItemId: string;
 
-  @IsString()
+  @IsInt()
+  @IsPositive()
   quantity: number;
-
-  @IsString()
-  unitPrice: number;
 }
 
 export class CreateOrderDto {

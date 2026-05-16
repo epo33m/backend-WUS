@@ -15,6 +15,12 @@ export class MenuItem {
   @Column({ type: 'int' })
   price: number;
 
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  category: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  imageUrl: string | null;
+
   @Column({ type: 'boolean', default: true })
   @Index()
   isAvailable: boolean;

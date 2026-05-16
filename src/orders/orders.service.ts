@@ -1,11 +1,14 @@
-import { Injectable, ConflictException, BadRequestException } from '@nestjs/common';
+import { Injectable, ConflictException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, Repository, QueryRunner } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Order, OrderStatus } from './entities/order.entity';
 import { OrderItem } from './entities/order-item.entity';
-import { Session } from '../sessions/entities/session.entity';
+import { Session, SessionStatus } from '../sessions/entities/session.entity';
 import { MenuItem } from '../menu/entities/menu-item.entity';
+import { Coupon, CouponStatus, DiscountType } from '../loyalty/entities/coupon.entity';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { SseService } from '../sse/sse.service';
 
 @Injectable()
 export class OrdersService {
@@ -20,33 +23,37 @@ export class OrdersService {
     private readonly menuItemRepository: Repository<MenuItem>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly eventEmitter: EventEmitter2,
+    private readonly sseService: SseService,
   ) {}
 
-  async createOrder(createOrderDto: CreateOrderDto): Promise<Order> {
+  async createOrder(userId: string, createOrderDto: CreateOrderDto): Promise<Order> {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     try {
-      // Check idempotency
-      const existingOrder = await queryRunner.manager.findOne(Order, {
+      // Idempotency: return existing order for same key without error
+      const existing = await queryRunner.manager.findOne(Order, {
         where: { idempotencyKey: createOrderDto.idempotencyKey },
       });
-      if (existingOrder) {
-        throw new ConflictException('Order already exists with this idempotency key');
+      if (existing) {
+        await queryRunner.rollbackTransaction();
+        return existing;
       }
 
-      // Validate session
+      // Validate session belongs to this user and is active
       const session = await queryRunner.manager.findOne(Session, {
-        where: { id: createOrderDto.sessionId },
+        where: { id: createOrderDto.sessionId, userId, status: SessionStatus.ACTIVE },
+        relations: ['table'],
       });
-      if (!session || !session.isActive) {
+      if (!session) {
         throw new BadRequestException('Invalid or inactive session');
       }
 
-      // Calculate total amount
-      let totalAmount = 0;
-      const orderItems: OrderItem[] = [];
+      // Build order items, snapshot prices from menu (never trust client price)
+      let subtotal = 0;
+      const itemsToCreate: Partial<OrderItem>[] = [];
       for (const item of createOrderDto.items) {
         const menuItem = await queryRunner.manager.findOne(MenuItem, {
           where: { id: item.menuItemId, isAvailable: true },
@@ -54,40 +61,77 @@ export class OrdersService {
         if (!menuItem) {
           throw new BadRequestException(`Menu item ${item.menuItemId} not available`);
         }
-        const orderItem = queryRunner.manager.create(OrderItem, {
+        subtotal += item.quantity * menuItem.price;
+        itemsToCreate.push({
           menuItemId: item.menuItemId,
           quantity: item.quantity,
-          unitPrice: item.unitPrice,
+          unitPrice: menuItem.price,
         });
-        orderItems.push(orderItem);
-        totalAmount += item.quantity * item.unitPrice;
       }
 
-      // Reserve coupon if provided (placeholder)
+      // Reserve coupon if provided — pessimistic write lock, idempotent on same key, 409 on collision
+      let couponId: number | null = null;
+      let discountAmount = 0;
       if (createOrderDto.couponCode) {
-        // await this.reserveCoupon(queryRunner, createOrderDto.couponCode);
+        const coupon = await queryRunner.manager
+          .createQueryBuilder(Coupon, 'coupon')
+          .setLock('pessimistic_write')
+          .where('coupon.code = :code', { code: createOrderDto.couponCode })
+          .getOne();
+
+        if (!coupon || coupon.expiresAt < new Date()) {
+          throw new BadRequestException('Coupon not found or expired');
+        }
+        if (coupon.status === CouponStatus.RESERVED) {
+          if (coupon.reservedByIdempotencyKey !== createOrderDto.idempotencyKey) {
+            throw new ConflictException('Coupon is already reserved by another order');
+          }
+          // Idempotent re-assert: same key already holds this coupon
+        } else if (coupon.status !== CouponStatus.AVAILABLE) {
+          throw new BadRequestException('Coupon is not available');
+        } else {
+          coupon.status = CouponStatus.RESERVED;
+          coupon.reservedByIdempotencyKey = createOrderDto.idempotencyKey;
+          await queryRunner.manager.save(Coupon, coupon);
+        }
+        couponId = coupon.id;
+        discountAmount = this.calculateDiscount(coupon, subtotal);
       }
 
-      // Create order
       const order = queryRunner.manager.create(Order, {
         idempotencyKey: createOrderDto.idempotencyKey,
-        sessionId: createOrderDto.sessionId,
-        status: OrderStatus.PENDING,
-        totalAmount,
+        userId,
+        sessionId: session.id,
+        tableNumber: session.table?.tableNumber ?? null,
+        status: OrderStatus.SUBMITTED,
+        couponId,
+        subtotal,
+        discountAmount,
+        totalAmount: subtotal - discountAmount,
+        lockedUntil: null,
+        cashierId: null,
       });
       const savedOrder = await queryRunner.manager.save(Order, order);
 
-      // Save order items
-      for (const item of orderItems) {
-        item.orderId = savedOrder.id;
-        await queryRunner.manager.save(OrderItem, item);
+      for (const item of itemsToCreate) {
+        await queryRunner.manager.save(OrderItem, { ...item, orderId: savedOrder.id });
       }
 
       await queryRunner.commitTransaction();
+
+      this.eventEmitter.emit('order.submitted', {
+        orderId: savedOrder.id,
+        order: { id: savedOrder.id, tableNumber: savedOrder.tableNumber, totalAmount: savedOrder.totalAmount },
+      });
+
       return savedOrder;
     } catch (error) {
       await queryRunner.rollbackTransaction();
-      if (error.code === '23505') { // Unique constraint violation
+      if ((error as NodeJS.ErrnoException & { code?: string }).code === '23505') {
+        const existing = await this.orderRepository.findOne({
+          where: { idempotencyKey: createOrderDto.idempotencyKey },
+        });
+        if (existing) return existing;
         throw new ConflictException('Idempotency key conflict');
       }
       throw error;
@@ -96,54 +140,143 @@ export class OrdersService {
     }
   }
 
-  async findOrderById(id: string): Promise<Order> {
-    const order = await this.orderRepository.findOne({
-      where: { id },
-      relations: ['items', 'items.menuItem'],
-    });
-    if (!order) {
-      throw new BadRequestException('Order not found');
-    }
-    return order;
-  }
-
-  async cancelOrder(id: string): Promise<Order> {
+  async reviewOrder(orderId: string, cashierId: string): Promise<Order> {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
-
     try {
-      const order = await queryRunner.manager.findOne(Order, { where: { id } });
-      if (!order) {
-        throw new BadRequestException('Order not found');
+      const order = await queryRunner.manager.findOne(Order, {
+        where: { id: orderId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!order) throw new BadRequestException('Order not found');
+      if (order.status !== OrderStatus.SUBMITTED) {
+        throw new BadRequestException(`Cannot review order in status ${order.status}`);
       }
-      if (order.status === OrderStatus.PAID) {
-        throw new BadRequestException('Cannot cancel a paid order');
-      }
-
-      order.status = OrderStatus.CANCELLED;
-      const updatedOrder = await queryRunner.manager.save(Order, order);
-
+      order.status = OrderStatus.REVIEWING;
+      order.lockedUntil = new Date(Date.now() + 2 * 60 * 1000);
+      order.cashierId = cashierId;
+      const saved = await queryRunner.manager.save(Order, order);
       await queryRunner.commitTransaction();
-      return updatedOrder;
-    } catch (error) {
+      return saved;
+    } catch (e) {
       await queryRunner.rollbackTransaction();
-      throw error;
+      throw e;
     } finally {
       await queryRunner.release();
     }
   }
 
+  async readyOrder(orderId: string): Promise<Order> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      const order = await queryRunner.manager.findOne(Order, {
+        where: { id: orderId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!order) throw new BadRequestException('Order not found');
+      if (order.status !== OrderStatus.CONFIRMED) {
+        throw new BadRequestException(`Cannot mark ready: order is in status ${order.status}`);
+      }
+      order.status = OrderStatus.READY;
+      const saved = await queryRunner.manager.save(Order, order);
+      await queryRunner.commitTransaction();
+      this.eventEmitter.emit('order.ready', { orderId: saved.id, status: 'READY' });
+      return saved;
+    } catch (e) {
+      await queryRunner.rollbackTransaction();
+      throw e;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  async completeOrder(orderId: string): Promise<Order> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      const order = await queryRunner.manager.findOne(Order, {
+        where: { id: orderId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!order) throw new BadRequestException('Order not found');
+      if (order.status !== OrderStatus.READY) {
+        throw new BadRequestException(`Cannot complete: order is in status ${order.status}`);
+      }
+      order.status = OrderStatus.COMPLETED;
+      const saved = await queryRunner.manager.save(Order, order);
+      await queryRunner.commitTransaction();
+      this.sseService.complete(orderId);
+      return saved;
+    } catch (e) {
+      await queryRunner.rollbackTransaction();
+      throw e;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  async cancelOrder(orderId: string): Promise<Order> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      const order = await queryRunner.manager.findOne(Order, {
+        where: { id: orderId },
+        lock: { mode: 'pessimistic_write' },
+        relations: ['coupon'],
+      });
+      if (!order) throw new BadRequestException('Order not found');
+      if (order.status === OrderStatus.REVIEWING) {
+        throw new ForbiddenException('Cannot cancel order while it is being reviewed');
+      }
+      if (order.status !== OrderStatus.SUBMITTED) {
+        throw new BadRequestException(`Cannot cancel order in status ${order.status}`);
+      }
+      order.status = OrderStatus.CANCELLED;
+      if (order.coupon && order.coupon.status === CouponStatus.RESERVED) {
+        order.coupon.status = CouponStatus.AVAILABLE;
+        order.coupon.reservedByIdempotencyKey = null as unknown as string;
+        await queryRunner.manager.save(Coupon, order.coupon);
+      }
+      const saved = await queryRunner.manager.save(Order, order);
+      await queryRunner.commitTransaction();
+      this.sseService.complete(saved.id);
+      this.eventEmitter.emit('order.cancelled', { orderId: saved.id });
+      return saved;
+    } catch (e) {
+      await queryRunner.rollbackTransaction();
+      throw e;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  async findOrderById(id: string): Promise<Order> {
+    const order = await this.orderRepository.findOne({
+      where: { id },
+      relations: ['items', 'items.menuItem', 'session', 'session.table'],
+    });
+    if (!order) throw new BadRequestException('Order not found');
+    return order;
+  }
+
   async findOrders(): Promise<Order[]> {
     return this.orderRepository.find({
-      relations: ['session', 'session.table'],
+      relations: ['session', 'session.table', 'items'],
       order: { createdAt: 'DESC' },
-      take: 50, // Limit to 50 for dashboard
+      take: 50,
     });
   }
 
-  // Placeholder for reserveCoupon
-  private async reserveCoupon(queryRunner: QueryRunner, couponCode: string): Promise<void> {
-    // Implement coupon reservation logic here
+  private calculateDiscount(coupon: Coupon, orderTotal: number): number {
+    if (coupon.discountType === DiscountType.FIXED_AMOUNT) {
+      return Math.min(coupon.discountValue, orderTotal);
+    }
+    const pct = Math.floor((orderTotal * coupon.discountValue) / 100);
+    return coupon.maxValue ? Math.min(pct, coupon.maxValue) : pct;
   }
 }

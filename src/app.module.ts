@@ -3,6 +3,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { envValidationSchema } from './config/env.validation';
@@ -22,6 +23,8 @@ import { RealtimeModule } from './realtime/realtime.module';
 import { FirebaseAdminModule } from './firebase/firebase.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { LoyaltyModule } from './loyalty/loyalty.module';
+import { CashierModule } from './cashier/cashier.module';
+import { TasksModule } from './tasks/tasks.module';
 
 
 @Module({
@@ -31,6 +34,7 @@ import { LoyaltyModule } from './loyalty/loyalty.module';
       validationSchema: envValidationSchema,
     }),
     EventEmitterModule.forRoot(),
+    ScheduleModule.forRoot(),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -58,6 +62,8 @@ import { LoyaltyModule } from './loyalty/loyalty.module';
     FirebaseAdminModule,
     NotificationsModule,
     LoyaltyModule,
+    CashierModule,
+    TasksModule,
   ],
   controllers: [AppController],
   providers: [

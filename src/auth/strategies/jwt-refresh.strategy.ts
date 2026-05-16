@@ -11,6 +11,7 @@ import { User } from '../../users/entities/user.entity';
 export interface JwtRefreshPayload {
   sub: string;
   email: string;
+  role: string;
 }
 
 @Injectable()

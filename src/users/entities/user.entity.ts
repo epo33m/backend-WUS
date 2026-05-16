@@ -5,6 +5,7 @@ import {
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { UserTier } from '../enums/user-tier.enum';
+import { UserRole } from '../enums/user-role.enum';
 
 @Entity('users')
 export class User {
@@ -31,6 +32,9 @@ export class User {
 
   @Column({ type: 'enum', enum: UserTier, default: UserTier.BRONZE })
   currentTier: UserTier;
+
+  @Column({ type: 'enum', enum: UserRole, default: UserRole.CUSTOMER })
+  role: UserRole;
 
   @Column({ default: 0 })
   purchaseCount: number;

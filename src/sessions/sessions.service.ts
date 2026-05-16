@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Session } from './entities/session.entity';
+import { Session, SessionStatus } from './entities/session.entity';
 import { Table } from '../users/entities/table.entity';
 
 @Injectable()
@@ -13,19 +13,24 @@ export class SessionsService {
     private readonly tableRepository: Repository<Table>,
   ) {}
 
-  async createSession(tableId: string): Promise<Session> {
+  async createOrResumeSession(userId: string, tableId: string): Promise<Session> {
     const table = await this.tableRepository.findOne({ where: { id: tableId } });
-    if (!table || !table.isAvailable) {
-      throw new BadRequestException('Table is not available');
+    if (!table) {
+      throw new BadRequestException('Table not found');
     }
 
-    const session = this.sessionRepository.create({
-      tableId,
-      startTime: new Date(),
-      isActive: true,
+    // Resume existing active session for this user+table
+    const existing = await this.sessionRepository.findOne({
+      where: { userId, tableId, status: SessionStatus.ACTIVE },
+      relations: ['table'],
     });
+    if (existing) return existing;
 
-    await this.tableRepository.update(tableId, { isAvailable: false });
+    const session = this.sessionRepository.create({
+      userId,
+      tableId,
+      status: SessionStatus.ACTIVE,
+    });
     return this.sessionRepository.save(session);
   }
 }

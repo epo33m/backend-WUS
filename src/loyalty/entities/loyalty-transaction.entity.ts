@@ -19,13 +19,11 @@ export class LoyaltyTransaction {
     id: number;
 
     @Index('idx_loyalty_tx_user')
-    @Column()
-    userId: number;
+    @Column({ type: 'uuid' })
+    userId: string;
 
-    @Column({
-    nullable: true,
-    })
-    orderId: number;
+    @Column({ type: 'uuid', nullable: true })
+    orderId: string | null;
 
     @Column({
     type: 'int',
