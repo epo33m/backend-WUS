@@ -6,6 +6,15 @@ import { AuthService, AuthTokens } from './auth.service';
 import { User } from '../users/entities/user.entity';
 import { FirebaseLoginDto } from './dto/firebase-login.dto';
 
+/**
+ * NOTE: Auth flow deviation from original spec (intentional).
+ * Spec specified GET /auth/google + GET /auth/google/callback (OAuth2 redirect).
+ * Implementation uses POST /auth/firebase (Firebase ID token verification).
+ *
+ * Rationale: Android client handles the Google OAuth dance via Firebase SDK.
+ * Backend only needs to verify the resulting ID token — redirect flow doesn't apply.
+ * Decision made: 2026-05-16. Do not revert to OAuth2 redirect without re-evaluating client flow.
+ */
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
