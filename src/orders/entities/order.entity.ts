@@ -5,6 +5,7 @@ export enum OrderStatus {
   PENDING = 'PENDING',
   PAID = 'PAID',
   CANCELLED = 'CANCELLED',
+  REVIEWING = 'REVIEWING',
 }
 
 @Entity('orders')
@@ -16,6 +17,12 @@ export class Order {
 
   @Column({ type: 'enum', enum: OrderStatus })
   status: OrderStatus;
+
+  @Column({
+  type: 'timestamp',
+  nullable: true,
+  })
+  lockedUntil: Date;
 
   @Column({ type: 'int' })
   totalAmount: number;

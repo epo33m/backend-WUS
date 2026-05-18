@@ -1,4 +1,4 @@
-import { Injectable, ConflictException, BadRequestException } from '@nestjs/common';
+import { Injectable, ConflictException, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, Repository, QueryRunner } from 'typeorm';
 import { Order, OrderStatus } from './entities/order.entity';
@@ -6,6 +6,8 @@ import { OrderItem } from './entities/order-item.entity';
 import { Session } from '../sessions/entities/session.entity';
 import { MenuItem } from '../menu/entities/menu-item.entity';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { CashierGateway } from '../gateways/cashier.gateway';
+
 
 @Injectable()
 export class OrdersService {
@@ -20,7 +22,9 @@ export class OrdersService {
     private readonly menuItemRepository: Repository<MenuItem>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
-  ) {}
+
+    private readonly cashierGateway: CashierGateway,
+    ) {}
 
   async createOrder(createOrderDto: CreateOrderDto): Promise<Order> {
     const queryRunner = this.dataSource.createQueryRunner();
@@ -140,6 +144,28 @@ export class OrdersService {
       order: { createdAt: 'DESC' },
       take: 50, // Limit to 50 for dashboard
     });
+  }
+
+  async markReviewing(orderId: string) {
+  const order = await this.orderRepository.findOne({
+    where: { id: orderId },
+  });
+
+  if (!order) {
+    throw new NotFoundException('Order not found');
+  }
+
+  order.status = OrderStatus.REVIEWING;
+
+  order.lockedUntil = new Date(
+    Date.now() + 2 * 60 * 1000,
+  );
+
+  await this.orderRepository.save(order);
+
+  this.cashierGateway.emitOrderUpdated(order);
+
+  return order;
   }
 
   // Placeholder for reserveCoupon
